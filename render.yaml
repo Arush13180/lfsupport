@@ -1,13 +1,23 @@
+databases:
+  - name: lfsupport-db
+    plan: free
+    region: singapore
+    databaseName: lfsupport
+    user: lfsupport
+
 services:
   - type: web
     name: lfsupport
     runtime: node
     plan: free
+    region: singapore
     buildCommand: npm install
     startCommand: npm start
     healthCheckPath: /healthz
     envVars:
       - key: DATABASE_URL
-        sync: false
+        fromDatabase:
+          name: lfsupport-db
+          property: connectionString
       - key: ADMIN_PASSWORD
         sync: false

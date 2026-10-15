@@ -30,7 +30,8 @@ const cleanDbUrl = (() => {
 })();
 const pool = new Pool({
   connectionString: cleanDbUrl,
-  ssl: /localhost|127\.0\.0\.1/.test(DATABASE_URL) ? false : { rejectUnauthorized: false },
+  // No SSL for localhost or Render's internal hostnames (no dot, e.g. dpg-xxxx-a)
+  ssl: (() => { try { const h = new URL(cleanDbUrl).hostname; return (h === 'localhost' || h === '127.0.0.1' || !h.includes('.')) ? false : { rejectUnauthorized: false }; } catch { return { rejectUnauthorized: false }; } })(),
   max: 5,
 });
 
