@@ -1,0 +1,248 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>lfsupport</title>
+<meta name="description" content="Raise a support complaint and book a call-back time slot.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,700&family=Instrument+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@500;700&display=swap">
+<link rel="stylesheet" href="/style.css">
+</head>
+<body>
+<div class="wrap">
+  <header class="top">
+    <a class="brand" href="/"><span class="brand-mark">LF</span><span class="brand-name">lf<span>support</span></span></a>
+    <span class="hours">Support hours: 10:00 AM – 06:00 PM IST</span>
+  </header>
+
+  <h1>Raise a complaint</h1>
+  <p class="lede">Tell us what went wrong and pick a half-hour slot. Our team will reach you on your mobile number during that time.</p>
+
+  <div class="tabs" role="tablist">
+    <button role="tab" id="tab-new" aria-selected="true">New ticket</button>
+    <button role="tab" id="tab-status" aria-selected="false">Check status</button>
+  </div>
+
+  <!-- New ticket -->
+  <section id="view-new">
+    <form id="form" class="stack" novalidate>
+      <div class="card">
+        <div class="section-head"><span class="step">Step 1</span><h2>Your details</h2></div>
+        <div class="stack" style="gap:14px">
+          <div class="grid2">
+            <label class="field">Full name
+              <input id="name" name="name" autocomplete="name" maxlength="80" required placeholder="e.g. Rahul Sharma">
+            </label>
+            <label class="field">Mobile number
+              <span class="phone-wrap"><span class="cc">+91</span><input id="phone" name="phone" inputmode="numeric" autocomplete="tel-national" maxlength="10" required placeholder="10-digit number"></span>
+            </label>
+          </div>
+          <label class="field">Complaint <span class="hint">What's the issue? (optional, up to 1000 characters)</span>
+            <textarea id="description" name="description" maxlength="1000" placeholder="e.g. Unable to export leads to Excel after the latest update."></textarea>
+          </label>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="section-head"><span class="step">Step 2</span><h2>Pick a date</h2></div>
+        <div class="days" id="days" aria-label="Choose a date"></div>
+      </div>
+
+      <div class="card">
+        <div class="section-head"><span class="step">Step 3</span><h2>Pick a time slot</h2></div>
+        <div class="slots" id="slots"><div class="empty">Loading available slots…</div></div>
+        <div class="meta-row"><span id="slotNote">Only free slots are shown. Booked slots open up again once that complaint is solved.</span></div>
+      </div>
+
+      <div id="formError" class="alert error" hidden></div>
+      <button class="btn block" id="submit" type="submit">Generate complaint ticket</button>
+    </form>
+
+    <div id="done" hidden class="fade-in stack">
+      <div class="stub">
+        <div class="stub-main">
+          <span class="pill open">Open</span>
+          <h2 style="margin-top:12px;font-size:22px">Your ticket is booked</h2>
+          <dl class="kv">
+            <dt>Name</dt><dd id="d-name"></dd>
+            <dt>Mobile</dt><dd id="d-phone"></dd>
+            <dt>Date</dt><dd id="d-date"></dd>
+            <dt>Time</dt><dd id="d-time"></dd>
+          </dl>
+        </div>
+        <div class="stub-side">
+          <span class="lbl">Ticket ID</span>
+          <span class="tid" id="d-id"></span>
+          <button class="btn small ghost" id="copyId" type="button" style="color:inherit;border-color:currentColor;margin-top:8px">Copy ID</button>
+        </div>
+      </div>
+      <p class="muted" style="margin:0">Save your ticket ID. You'll need it with your mobile number to check status.</p>
+      <div><button class="btn ghost" id="another" type="button">Raise another complaint</button></div>
+    </div>
+  </section>
+
+  <!-- Status check -->
+  <section id="view-status" hidden>
+    <form id="statusForm" class="card stack" style="gap:14px" novalidate>
+      <div class="grid2">
+        <label class="field">Ticket ID
+          <input id="s-id" class="mono" placeholder="LF-XXXXXX" autocomplete="off" required style="text-transform:uppercase">
+        </label>
+        <label class="field">Mobile number
+          <span class="phone-wrap"><span class="cc">+91</span><input id="s-phone" inputmode="numeric" maxlength="10" placeholder="10-digit number" required></span>
+        </label>
+      </div>
+      <div id="statusError" class="alert error" hidden></div>
+      <button class="btn" type="submit" id="statusBtn">Check status</button>
+    </form>
+    <div id="statusResult" class="card fade-in" hidden style="margin-top:16px"></div>
+  </section>
+
+  <footer class="foot">lfsupport · LeadFinder customer support</footer>
+</div>
+
+<script>
+const $ = s => document.querySelector(s);
+const state = { config: null, date: null, slot: null };
+const WD = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+const MO = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+
+function addDays(s, n) { const d = new Date(s + 'T00:00:00Z'); d.setUTCDate(d.getUTCDate() + n); return d.toISOString().slice(0, 10); }
+function niceDate(s) { const d = new Date(s + 'T00:00:00Z'); return `${WD[d.getUTCDay()]}, ${d.getUTCDate()} ${MO[d.getUTCMonth()]} ${d.getUTCFullYear()}`; }
+
+async function api(url, opts) {
+  const r = await fetch(url, { headers: { 'Content-Type': 'application/json' }, ...opts });
+  let body = {}; try { body = await r.json(); } catch {}
+  if (!r.ok) { const e = new Error(body.error || 'Something went wrong. Please try again.'); e.body = body; throw e; }
+  return body;
+}
+
+function renderDays() {
+  const box = $('#days'); box.innerHTML = '';
+  const { today, maxDate } = state.config;
+  for (let d = today; d <= maxDate; d = addDays(d, 1)) {
+    const dt = new Date(d + 'T00:00:00Z');
+    const b = document.createElement('button');
+    b.type = 'button'; b.className = 'day'; b.dataset.date = d;
+    b.setAttribute('aria-pressed', d === state.date ? 'true' : 'false');
+    b.innerHTML = `<span class="dw">${d === today ? 'Today' : WD[dt.getUTCDay()]}</span><span class="dn">${dt.getUTCDate()}</span><span class="dm">${MO[dt.getUTCMonth()]}</span>`;
+    b.onclick = () => { state.date = d; state.slot = null; renderDays(); loadSlots(); };
+    box.appendChild(b);
+  }
+}
+
+async function loadSlots() {
+  const box = $('#slots');
+  box.innerHTML = '<div class="empty">Loading available slots…</div>';
+  try {
+    const { slots } = await api('/api/slots?date=' + state.date);
+    box.innerHTML = '';
+    if (!slots.length) {
+      box.innerHTML = `<div class="empty" style="grid-column:1/-1">No free slots on ${niceDate(state.date)}. Please pick another date.</div>`;
+      return;
+    }
+    if (!slots.some(s => s.value === state.slot)) state.slot = null;
+    for (const s of slots) {
+      const b = document.createElement('button');
+      b.type = 'button'; b.className = 'chip'; b.textContent = s.label;
+      b.setAttribute('aria-pressed', s.value === state.slot ? 'true' : 'false');
+      b.onclick = () => { state.slot = s.value; box.querySelectorAll('.chip').forEach(c => c.setAttribute('aria-pressed', 'false')); b.setAttribute('aria-pressed', 'true'); };
+      box.appendChild(b);
+    }
+  } catch (e) {
+    box.innerHTML = `<div class="empty" style="grid-column:1/-1">${e.message}</div>`;
+  }
+}
+
+function showError(el, msg) { el.textContent = msg; el.hidden = !msg; }
+
+$('#phone').addEventListener('input', e => { e.target.value = e.target.value.replace(/\D/g, '').slice(0, 10); });
+$('#s-phone').addEventListener('input', e => { e.target.value = e.target.value.replace(/\D/g, '').slice(0, 10); });
+
+$('#form').addEventListener('submit', async e => {
+  e.preventDefault();
+  const err = $('#formError'); showError(err, '');
+  const name = $('#name').value.trim(), phone = $('#phone').value.trim(), description = $('#description').value.trim();
+  if (name.length < 2) return showError(err, 'Enter your full name.');
+  if (!/^[6-9]\d{9}$/.test(phone)) return showError(err, 'Enter a valid 10-digit mobile number.');
+  if (!state.slot) return showError(err, 'Pick a time slot.');
+  const btn = $('#submit'); btn.disabled = true; btn.textContent = 'Generating ticket…';
+  try {
+    const { ticket } = await api('/api/tickets', { method: 'POST', body: JSON.stringify({ name, phone, description, date: state.date, slot: state.slot }) });
+    $('#d-id').textContent = ticket.id;
+    $('#d-name').textContent = ticket.name;
+    $('#d-phone').textContent = '+91 ' + ticket.phone;
+    $('#d-date').textContent = niceDate(ticket.date);
+    $('#d-time').textContent = ticket.slotLabel;
+    $('#form').hidden = true; $('#done').hidden = false;
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  } catch (ex) {
+    showError(err, ex.message);
+    if (ex.body && ex.body.slotTaken) { state.slot = null; loadSlots(); }
+  } finally {
+    btn.disabled = false; btn.textContent = 'Generate complaint ticket';
+  }
+});
+
+$('#copyId').onclick = async () => {
+  const id = $('#d-id').textContent;
+  try { await navigator.clipboard.writeText(id); $('#copyId').textContent = 'Copied'; }
+  catch { const r = document.createRange(); r.selectNodeContents($('#d-id')); const s = getSelection(); s.removeAllRanges(); s.addRange(r); }
+  setTimeout(() => $('#copyId').textContent = 'Copy ID', 1500);
+};
+$('#another').onclick = () => {
+  $('#form').reset(); state.slot = null;
+  $('#done').hidden = true; $('#form').hidden = false; loadSlots();
+};
+
+// Tabs
+function setTab(which) {
+  $('#tab-new').setAttribute('aria-selected', which === 'new');
+  $('#tab-status').setAttribute('aria-selected', which === 'status');
+  $('#view-new').hidden = which !== 'new';
+  $('#view-status').hidden = which !== 'status';
+}
+$('#tab-new').onclick = () => { setTab('new'); if (state.date) loadSlots(); };
+$('#tab-status').onclick = () => setTab('status');
+
+$('#statusForm').addEventListener('submit', async e => {
+  e.preventDefault();
+  const err = $('#statusError'); showError(err, '');
+  const id = $('#s-id').value.trim().toUpperCase(), phone = $('#s-phone').value.trim();
+  if (!id) return showError(err, 'Enter your ticket ID.');
+  if (phone.length !== 10) return showError(err, 'Enter the 10-digit mobile number used for the ticket.');
+  const out = $('#statusResult'); out.hidden = true;
+  try {
+    const { ticket: t } = await api('/api/tickets/status', { method: 'POST', body: JSON.stringify({ id, phone }) });
+    out.innerHTML = '';
+    const pill = document.createElement('span'); pill.className = 'pill ' + t.status; pill.textContent = t.status === 'solved' ? 'Solved' : 'Open';
+    const h = document.createElement('h2'); h.style.marginTop = '10px'; h.className = 'mono'; h.textContent = t.id;
+    const dl = document.createElement('dl'); dl.className = 'kv';
+    const rows = [['Name', t.name], ['Date', niceDate(t.date)], ['Time', t.slotLabel]];
+    if (t.solvedAt) rows.push(['Solved on', new Date(t.solvedAt).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', dateStyle: 'medium', timeStyle: 'short' })]);
+    for (const [k, v] of rows) { const dt = document.createElement('dt'); dt.textContent = k; const dd = document.createElement('dd'); dd.textContent = v; dl.append(dt, dd); }
+    out.append(pill, h, dl); out.hidden = false;
+  } catch (ex) { showError(err, ex.message); }
+});
+
+(async () => {
+  try {
+    state.config = await api('/api/config');
+    state.date = state.config.defaultDate || state.config.today;
+    renderDays(); loadSlots();
+  } catch (e) { $('#slots').innerHTML = `<div class="empty">${e.message}</div>`; }
+})();
+// Refresh free slots every 30s so newly booked/freed slots show up
+setInterval(() => { if (!$('#view-new').hidden && !$('#form').hidden && state.date) refreshQuiet(); }, 30000);
+async function refreshQuiet() {
+  try {
+    const { slots } = await api('/api/slots?date=' + state.date);
+    const cur = [...document.querySelectorAll('#slots .chip')].map(c => c.textContent).join('|');
+    if (slots.map(s => s.label).join('|') !== cur) loadSlots();
+  } catch {}
+}
+</script>
+</body>
+</html>

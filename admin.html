@@ -1,0 +1,201 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="robots" content="noindex">
+<title>lfsupport Admin</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,700&family=Instrument+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@500;700&display=swap">
+<link rel="stylesheet" href="/style.css">
+<style>
+  .stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-bottom: 20px; }
+  .stat { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 14px 16px; }
+  .stat .n { font: 700 28px/1.1 var(--display); font-variant-numeric: tabular-nums; }
+  .stat .l { font-size: 12px; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); }
+  .stat.open .n { color: var(--open); }
+  .toolbar { display: flex; gap: 12px; align-items: center; justify-content: space-between; flex-wrap: wrap; margin-bottom: 14px; }
+  .toolbar .tabs { margin: 0; }
+  .toolbar input { max-width: 280px; }
+  .group-h { font: 600 13px var(--body); color: var(--muted); text-transform: uppercase; letter-spacing: .08em; margin: 18px 0 8px; display: flex; gap: 8px; align-items: center; }
+  .group-h .today { color: var(--accent); }
+  .list { display: grid; gap: 8px; }
+  .t {
+    display: grid; grid-template-columns: 150px 1fr auto; gap: 16px; align-items: start;
+    background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 14px 16px;
+  }
+  .t.open { border-left: 4px solid var(--open); }
+  .t.solved { border-left: 4px solid var(--accent); }
+  .t .time { font: 700 15px var(--body); font-variant-numeric: tabular-nums; }
+  .t .id { font: 600 12px var(--mono); color: var(--muted); margin-top: 2px; }
+  .t .who { font-weight: 650; }
+  .t .who a { color: var(--ink); text-decoration: none; font-weight: 500; font-variant-numeric: tabular-nums; }
+  .t .who a:hover { text-decoration: underline; }
+  .t .desc { color: var(--muted); margin-top: 4px; white-space: pre-wrap; overflow-wrap: anywhere; }
+  .t .note { margin-top: 6px; font-size: 13px; color: var(--accent); overflow-wrap: anywhere; }
+  .t .acts { display: flex; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
+  .t > div { min-width: 0; }
+  .solve-box { grid-column: 1 / -1; display: grid; gap: 8px; border-top: 1px dashed var(--line); padding-top: 12px; }
+  .solve-box .row { display: flex; gap: 8px; flex-wrap: wrap; }
+  @media (max-width: 640px) {
+    .t { grid-template-columns: 1fr; gap: 8px; }
+    .t .acts { justify-content: flex-start; }
+    .stats { grid-template-columns: repeat(3, 1fr); gap: 8px; }
+    .stat { padding: 10px 12px; }
+    .stat .n { font-size: 22px; }
+    .toolbar input { max-width: none; }
+  }
+  .login { max-width: 380px; margin: 8vh auto 0; }
+</style>
+</head>
+<body>
+<div class="wrap wide">
+  <header class="top">
+    <a class="brand" href="/admin"><span class="brand-mark">LF</span><span class="brand-name">lf<span>support</span> <span class="muted" style="font-weight:600">admin</span></span></a>
+    <button class="btn ghost small" id="logout" hidden>Sign out</button>
+  </header>
+
+  <section id="loginView" hidden>
+    <form class="card login stack" id="loginForm" style="gap:14px">
+      <h2>Sign in to the admin panel</h2>
+      <label class="field">Admin password
+        <input type="password" id="pw" autocomplete="current-password" required>
+      </label>
+      <div class="alert error" id="loginErr" hidden></div>
+      <button class="btn" type="submit">Sign in</button>
+    </form>
+  </section>
+
+  <section id="appView" hidden>
+    <div class="stats">
+      <div class="stat open"><div class="n" id="c-open">–</div><div class="l">Open</div></div>
+      <div class="stat"><div class="n" id="c-today">–</div><div class="l">Open today</div></div>
+      <div class="stat"><div class="n" id="c-solved">–</div><div class="l">Solved</div></div>
+    </div>
+    <div class="toolbar">
+      <div class="tabs" role="tablist">
+        <button data-f="open" aria-selected="true">Open</button>
+        <button data-f="solved" aria-selected="false">Solved</button>
+        <button data-f="all" aria-selected="false">All</button>
+      </div>
+      <input id="q" type="search" placeholder="Search name, mobile or ticket ID">
+    </div>
+    <div class="alert error" id="appErr" hidden></div>
+    <div id="list"></div>
+    <p class="muted" style="font-size:13px;margin-top:18px">Marking a ticket solved frees its time slot for new customers right away. List refreshes every 30 seconds.</p>
+  </section>
+</div>
+
+<script>
+const $ = s => document.querySelector(s);
+const WD = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'], MO = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+const st = { filter: 'open', tickets: [], today: '', openSolve: null };
+function niceDate(s) { const d = new Date(s + 'T00:00:00Z'); return `${WD[d.getUTCDay()]}, ${d.getUTCDate()} ${MO[d.getUTCMonth()]} ${d.getUTCFullYear()}`; }
+function fmtTs(ts) { return ts ? new Date(ts).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', dateStyle: 'medium', timeStyle: 'short' }) : ''; }
+function el(tag, attrs = {}, ...kids) {
+  const e = document.createElement(tag);
+  for (const [k, v] of Object.entries(attrs)) { if (k === 'class') e.className = v; else if (k.startsWith('on')) e[k] = v; else e.setAttribute(k, v); }
+  for (const k of kids) if (k != null) e.append(k);
+  return e;
+}
+async function api(url, opts) {
+  const r = await fetch(url, { headers: { 'Content-Type': 'application/json' }, credentials: 'same-origin', ...opts });
+  let body = {}; try { body = await r.json(); } catch {}
+  if (r.status === 401 && !url.endsWith('/login')) { showLogin(); throw new Error('Please sign in.'); }
+  if (!r.ok) throw new Error(body.error || 'Something went wrong.');
+  return body;
+}
+function showLogin() { $('#loginView').hidden = false; $('#appView').hidden = true; $('#logout').hidden = true; }
+function showApp() { $('#loginView').hidden = true; $('#appView').hidden = false; $('#logout').hidden = false; load(); }
+
+$('#loginForm').onsubmit = async e => {
+  e.preventDefault(); const err = $('#loginErr'); err.hidden = true;
+  try { await api('/api/admin/login', { method: 'POST', body: JSON.stringify({ password: $('#pw').value }) }); $('#pw').value = ''; showApp(); }
+  catch (ex) { err.textContent = ex.message; err.hidden = false; }
+};
+$('#logout').onclick = async () => { await api('/api/admin/logout', { method: 'POST' }).catch(() => {}); showLogin(); };
+
+document.querySelectorAll('.toolbar .tabs button').forEach(b => b.onclick = () => {
+  st.filter = b.dataset.f;
+  document.querySelectorAll('.toolbar .tabs button').forEach(x => x.setAttribute('aria-selected', x === b));
+  load();
+});
+$('#q').oninput = render;
+
+async function load() {
+  try {
+    const q = st.filter === 'all' ? '' : '?status=' + st.filter;
+    const data = await api('/api/admin/tickets' + q);
+    st.tickets = data.tickets; st.today = data.today;
+    $('#c-open').textContent = data.counts.open;
+    $('#c-today').textContent = data.counts.today;
+    $('#c-solved').textContent = data.counts.solved;
+    $('#appErr').hidden = true;
+    render();
+  } catch (ex) { if (ex.message !== 'Please sign in.') { $('#appErr').textContent = ex.message; $('#appErr').hidden = false; } }
+}
+
+function render() {
+  const q = $('#q').value.trim().toLowerCase();
+  const list = $('#list'); list.innerHTML = '';
+  const items = st.tickets.filter(t => !q || t.name.toLowerCase().includes(q) || t.phone.includes(q) || t.id.toLowerCase().includes(q));
+  if (!items.length) {
+    list.append(el('div', { class: 'empty' }, q ? 'No tickets match your search.' : st.filter === 'open' ? 'No open complaints. New tickets will appear here.' : 'No tickets yet.'));
+    return;
+  }
+  if (st.filter === 'open') {
+    const groups = {};
+    for (const t of items) (groups[t.date] ||= []).push(t);
+    for (const d of Object.keys(groups).sort()) {
+      const h = el('div', { class: 'group-h' }, niceDate(d));
+      if (d === st.today) h.prepend(el('span', { class: 'today' }, 'Today ·'));
+      else if (d < st.today) h.prepend(el('span', { style: 'color:var(--danger)' }, 'Overdue ·'));
+      list.append(h, el('div', { class: 'list' }, ...groups[d].map(row)));
+    }
+  } else {
+    list.append(el('div', { class: 'list' }, ...items.map(row)));
+  }
+}
+
+function row(t) {
+  const left = el('div', {},
+    el('div', { class: 'time' }, t.slotLabel),
+    st.filter !== 'open' ? el('div', { class: 'muted', style: 'font-size:13px' }, niceDate(t.date)) : null,
+    el('div', { class: 'id' }, t.id));
+  const mid = el('div', {},
+    el('div', { class: 'who' }, t.name, ' · ', el('a', { href: 'tel:+91' + t.phone }, '+91 ' + t.phone)),
+    t.description ? el('div', { class: 'desc' }, t.description) : el('div', { class: 'desc' }, 'No description given.'),
+    t.status === 'solved' ? el('div', { class: 'note' }, 'Solved ' + fmtTs(t.solvedAt) + (t.adminNote ? ' — ' + t.adminNote : '')) : null,
+    el('div', { class: 'muted', style: 'font-size:12px;margin-top:6px' }, 'Raised ' + fmtTs(t.createdAt)));
+  const acts = el('div', { class: 'acts' });
+  const card = el('div', { class: 't ' + t.status }, left, mid, acts);
+  if (t.status === 'open') {
+    acts.append(el('button', { class: 'btn small', onclick: () => { st.openSolve = st.openSolve === t.id ? null : t.id; render(); } }, 'Mark solved'));
+    if (st.openSolve === t.id) {
+      const note = el('input', { placeholder: 'Resolution note (optional)', maxlength: '1000', id: 'note-' + t.id });
+      const err = el('div', { class: 'alert error', hidden: '' });
+      const confirmBtn = el('button', { class: 'btn small', onclick: async () => {
+        confirmBtn.disabled = true;
+        try { await api(`/api/admin/tickets/${t.id}/solve`, { method: 'POST', body: JSON.stringify({ note: note.value }) }); st.openSolve = null; load(); }
+        catch (ex) { err.textContent = ex.message; err.hidden = false; confirmBtn.disabled = false; }
+      } }, 'Confirm solved');
+      card.append(el('div', { class: 'solve-box' }, note, err, el('div', { class: 'row' }, confirmBtn,
+        el('button', { class: 'btn small ghost', onclick: () => { st.openSolve = null; render(); } }, 'Cancel'))));
+      setTimeout(() => note.focus(), 0);
+    }
+  } else {
+    acts.append(el('span', { class: 'pill solved' }, 'Solved'));
+    acts.append(el('button', { class: 'btn small ghost', onclick: async () => {
+      try { await api(`/api/admin/tickets/${t.id}/reopen`, { method: 'POST' }); load(); }
+      catch (ex) { $('#appErr').textContent = ex.message; $('#appErr').hidden = false; }
+    } }, 'Reopen'));
+  }
+  return card;
+}
+
+setInterval(() => { if (!$('#appView').hidden && !st.openSolve) load(); }, 30000);
+api('/api/admin/me').then(showApp).catch(() => showLogin());
+</script>
+</body>
+</html>
