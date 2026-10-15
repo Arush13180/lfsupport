@@ -14,8 +14,22 @@ const MAX_OPEN_PER_PHONE = parseInt(process.env.MAX_OPEN_PER_PHONE || '1', 10);
 if (!DATABASE_URL) { console.error('DATABASE_URL is not set'); process.exit(1); }
 if (!ADMIN_PASSWORD) { console.error('ADMIN_PASSWORD is not set'); process.exit(1); }
 
+// Strip sslmode/channel_binding params (handled by the ssl option below)
+const cleanDbUrl = (() => {
+  // Accept pasted snippets like: psql 'postgresql://...'  or  DATABASE_URL="postgresql://..."
+  const m = DATABASE_URL.match(/postgres(?:ql)?:\/\/[^\s'"`]+/);
+  const raw = m ? m[0] : DATABASE_URL.trim();
+  if (!m) console.error('DATABASE_URL does not contain a postgresql:// address. Paste the connection string from Neon.');
+  try { console.log('Database host:', new URL(raw).hostname); } catch {}
+  try {
+    const u = new URL(raw);
+    u.searchParams.delete('sslmode');
+    u.searchParams.delete('channel_binding');
+    return u.toString();
+  } catch { return raw; }
+})();
 const pool = new Pool({
-  connectionString: DATABASE_URL,
+  connectionString: cleanDbUrl,
   ssl: /localhost|127\.0\.0\.1/.test(DATABASE_URL) ? false : { rejectUnauthorized: false },
   max: 5,
 });
